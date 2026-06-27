@@ -1,3 +1,32 @@
-/* You can add global styles to this file, and also import other style files */
-
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap');
 @import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+	--color-brand-blue: #2563eb;
+	--color-brand-indigo: #3730a3;
+	--color-brand-emerald: #10b981;
+}
+
+html,
+body {
+	min-height: 100%;
+}
+
+body {
+	margin: 0;
+	font-family: 'Manrope', sans-serif;
+	background: radial-gradient(circle at top right, rgb(191 219 254 / 0.25), transparent 55%),
+		radial-gradient(circle at bottom left, rgb(165 180 252 / 0.2), transparent 45%);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+	font-family: 'Sora', sans-serif;
+	letter-spacing: -0.02em;
+}
