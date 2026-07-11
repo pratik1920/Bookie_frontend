@@ -1,11 +1,12 @@
 import { CurrencyPipe, DatePipe } from '@angular/common';
-import { Component, computed, inject } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
+import { Component, inject } from '@angular/core';
+import { toObservable, toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { map } from 'rxjs';
+import { catchError, map, of, switchMap } from 'rxjs';
 
 import { BookCardComponent } from '../components/book-card.component';
-import { BOOK_LISTINGS } from '../data/book-listings.data';
+import { BookListing } from '../models/book.model';
+import { ListingsApiService } from '../services/listings-api.service';
 
 @Component({
   selector: 'app-book-detail-page',
@@ -123,19 +124,44 @@ import { BOOK_LISTINGS } from '../data/book-listings.data';
 })
 export class BookDetailPageComponent {
   private readonly route = inject(ActivatedRoute);
+  private readonly listingsApi = inject(ListingsApiService);
 
   readonly id = toSignal(this.route.paramMap.pipe(map((params) => params.get('id') ?? '')), {
     initialValue: ''
   });
 
-  readonly book = computed(() => BOOK_LISTINGS.find((item) => item.id === this.id()) ?? null);
+  readonly book = toSignal(
+    toObservable(this.id).pipe(
+      switchMap((id) => {
+        if (!id) {
+          return of(null);
+        }
+        return this.listingsApi.getListingById(id).pipe(catchError(() => of(null)));
+      })
+    ),
+    { initialValue: null }
+  );
 
-  readonly relatedBooks = computed(() => {
-    const selected = this.book();
-    if (!selected) {
-      return [];
-    }
+  readonly relatedBooks = toSignal(
+    toObservable(this.book).pipe(
+      switchMap((selectedBook) => {
+        if (!selectedBook) {
+          return of([] as BookListing[]);
+        }
 
-    return BOOK_LISTINGS.filter((book) => book.subject === selected.subject && book.id !== selected.id).slice(0, 3);
-  });
+        return this.listingsApi
+          .getListings({
+            subject: selectedBook.subject,
+            status: 'ACTIVE',
+            page: 0,
+            size: 6
+          })
+          .pipe(
+            map((page) => page.content.filter((item) => item.id !== selectedBook.id).slice(0, 3)),
+            catchError(() => of([] as BookListing[]))
+          );
+      })
+    ),
+    { initialValue: [] as BookListing[] }
+  );
 }

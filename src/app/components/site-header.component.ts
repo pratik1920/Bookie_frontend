@@ -12,7 +12,7 @@ import { ThemeService } from '../services/theme.service';
     >
       <div class="mx-auto w-full max-w-7xl px-4 py-3 sm:px-6 lg:px-8">
         <div class="flex items-center gap-3">
-          <a routerLink="/" class="flex items-center gap-3">
+          <a routerLink="/home" class="flex items-center gap-3">
             <span
               class="grid h-11 w-11 place-items-center rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-600/30"
             >
@@ -62,7 +62,7 @@ import { ThemeService } from '../services/theme.service';
               >Sell Book</a
             >
             <a
-              routerLink="/profile/s1"
+              routerLink="/profile/me"
               class="rounded-xl border border-slate-200 p-2 text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-100 dark:hover:bg-slate-800"
               aria-label="Profile"
             >
@@ -137,7 +137,7 @@ import { ThemeService } from '../services/theme.service';
               <a routerLink="/browse" (click)="mobileOpen.set(false)" class="rounded-xl px-3 py-2 font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-slate-800">Browse</a>
               <a routerLink="/my-listings" (click)="mobileOpen.set(false)" class="rounded-xl px-3 py-2 font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-slate-800">My Listings</a>
               <a routerLink="/sell" (click)="mobileOpen.set(false)" class="rounded-xl bg-blue-600 px-3 py-2 text-center font-semibold text-white">Sell Book</a>
-              <a routerLink="/profile/s1" (click)="mobileOpen.set(false)" class="rounded-xl px-3 py-2 font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-slate-800">Profile</a>
+              <a routerLink="/profile/me" (click)="mobileOpen.set(false)" class="rounded-xl px-3 py-2 font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-slate-800">Profile</a>
               <button
                 type="button"
                 (click)="theme.toggleTheme()"

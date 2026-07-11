@@ -28,5 +28,8 @@ export interface BookListing {
   isbn?: string;
   imageUrl: string;
   postedDate: string;
+  savingsPercent?: number;
+  status?: 'ACTIVE' | 'SOLD' | 'DRAFT';
+  viewCount?: number;
   seller: Seller;
 }

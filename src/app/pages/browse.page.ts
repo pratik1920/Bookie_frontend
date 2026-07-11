@@ -1,8 +1,11 @@
-import { Component, computed, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+import { catchError, debounceTime, finalize, map, of, switchMap } from 'rxjs';
 
 import { BookCardComponent } from '../components/book-card.component';
-import { BOOK_LISTINGS, BOOK_TYPES, SUBJECTS } from '../data/book-listings.data';
+import { BOOK_TYPES } from '../data/book-listings.data';
 import { BookCondition, BookListing, BookType } from '../models/book.model';
+import { ListingConditionApi, ListingSortApi, ListingTypeApi, ListingsApiService } from '../services/listings-api.service';
 
 type SortOption = 'Newest First' | 'Price: Low to High' | 'Price: High to Low' | 'Best Savings';
 
@@ -58,7 +61,7 @@ type SortOption = 'Newest First' | 'Price: Low to High' | 'Price: High to Low' |
             <section>
               <h4 class="mb-3 text-sm font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Subject</h4>
               <div class="grid gap-2">
-                @for (subject of subjects; track subject) {
+                @for (subject of subjects(); track subject) {
                   <button type="button" (click)="toggleSubject(subject)" [class]="filterButtonClass(selectedSubjects().includes(subject))">{{ subject }}</button>
                 }
               </div>
@@ -95,6 +98,18 @@ type SortOption = 'Newest First' | 'Price: Low to High' | 'Price: High to Low' |
         </aside>
 
         <section>
+          @if (isLoading()) {
+            <div class="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300">
+              Loading listings...
+            </div>
+          }
+
+          @if (loadError(); as errorMessage) {
+            <div class="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+              {{ errorMessage }}
+            </div>
+          }
+
           @if (filteredListings().length === 0) {
             <div class="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center dark:border-slate-700 dark:bg-slate-900">
               <h2 class="mt-4 text-3xl font-bold text-slate-900 dark:text-slate-100">No listings found</h2>
@@ -120,11 +135,16 @@ type SortOption = 'Newest First' | 'Price: Low to High' | 'Price: High to Low' |
   `
 })
 export class BrowsePageComponent {
-  readonly subjects = [...SUBJECTS];
+  private readonly listingsApi = inject(ListingsApiService);
+
+  readonly subjects = signal<string[]>([]);
   readonly conditions: BookCondition[] = ['Like New', 'Good', 'Fair', 'Acceptable'];
   readonly types = [...BOOK_TYPES];
   readonly sortOptions: SortOption[] = ['Newest First', 'Price: Low to High', 'Price: High to Low', 'Best Savings'];
 
+  readonly apiListings = signal<BookListing[]>([]);
+  readonly isLoading = signal(false);
+  readonly loadError = signal<string | null>(null);
   readonly searchTerm = signal('');
   readonly sortBy = signal<SortOption>('Newest First');
   readonly selectedSubjects = signal<string[]>([]);
@@ -143,7 +163,7 @@ export class BrowsePageComponent {
 
   readonly filteredListings = computed(() => {
     const query = this.searchTerm().trim().toLowerCase();
-    let results = BOOK_LISTINGS.filter((book) => {
+    let results = this.apiListings().filter((book) => {
       const byQuery =
         query.length === 0 ||
         book.title.toLowerCase().includes(query) ||
@@ -158,6 +178,59 @@ export class BrowsePageComponent {
     results = [...results].sort((a, b) => this.sortCompare(a, b, this.sortBy()));
     return results;
   });
+
+  constructor() {
+    this.loadAvailableSubjects();
+
+    toObservable(
+      computed(() => ({
+        search: this.searchTerm(),
+        sortBy: this.sortBy(),
+        subjects: this.selectedSubjects(),
+        conditions: this.selectedConditions(),
+        types: this.selectedTypes()
+      }))
+    )
+      .pipe(
+        debounceTime(250),
+        switchMap((filters) => {
+          this.loadError.set(null);
+          this.isLoading.set(true);
+
+          return this.listingsApi
+            .getListings({
+              search: filters.search.trim() || undefined,
+              sortBy: this.toApiSort(filters.sortBy),
+              subject: filters.subjects.length === 1 ? filters.subjects[0] : undefined,
+              condition: filters.conditions.length === 1 ? this.toApiCondition(filters.conditions[0]) : undefined,
+              type: filters.types.length === 1 ? this.toApiType(filters.types[0]) : undefined,
+              status: 'ACTIVE',
+              page: 0,
+              size: 100
+            })
+            .pipe(
+              map((page) => page.content),
+              catchError(() => {
+                this.loadError.set('Could not load listings from API.');
+                return of([]);
+              }),
+              finalize(() => this.isLoading.set(false))
+            );
+        }),
+        takeUntilDestroyed()
+      )
+      .subscribe((listings) => {
+        this.apiListings.set(listings);
+
+        const knownSubjects = new Set(this.subjects());
+        for (const listing of listings) {
+          if (listing.subject.trim().length > 0) {
+            knownSubjects.add(listing.subject.trim());
+          }
+        }
+        this.subjects.set([...knownSubjects].sort((a, b) => a.localeCompare(b)));
+      });
+  }
 
   toggleSubject(subject: string): void {
     this.selectedSubjects.update((current) => this.toggleInArray(current, subject));
@@ -211,7 +284,55 @@ export class BrowsePageComponent {
     return new Date(b.postedDate).getTime() - new Date(a.postedDate).getTime();
   }
 
+  private toApiSort(sortBy: SortOption): ListingSortApi {
+    if (sortBy === 'Price: Low to High') {
+      return 'PRICE_LOW_HIGH';
+    }
+    if (sortBy === 'Price: High to Low') {
+      return 'PRICE_HIGH_LOW';
+    }
+    if (sortBy === 'Best Savings') {
+      return 'BEST_SAVINGS';
+    }
+    return 'NEWEST_FIRST';
+  }
+
+  private toApiType(type: BookType): ListingTypeApi {
+    if (type === 'Notes') {
+      return 'NOTES';
+    }
+    if (type === 'Study Guide') {
+      return 'STUDY_GUIDE';
+    }
+    return 'TEXTBOOK';
+  }
+
+  private toApiCondition(condition: BookCondition): ListingConditionApi {
+    if (condition === 'Like New') {
+      return 'LIKE_NEW';
+    }
+    if (condition === 'Fair') {
+      return 'FAIR';
+    }
+    if (condition === 'Acceptable') {
+      return 'ACCEPTABLE';
+    }
+    return 'GOOD';
+  }
+
   private toggleInArray<T>(values: T[], value: T): T[] {
     return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
+  }
+
+  private loadAvailableSubjects(): void {
+    this.listingsApi
+      .getAvailableSubjects('ACTIVE')
+      .pipe(
+        catchError(() => of([])),
+        takeUntilDestroyed()
+      )
+      .subscribe((subjects) => {
+        this.subjects.set(subjects);
+      });
   }
 }

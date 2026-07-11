@@ -1,8 +1,12 @@
 import { CurrencyPipe } from '@angular/common';
-import { Component, computed, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
+import { catchError, finalize, of, switchMap } from 'rxjs';
 
-import { BOOK_LISTINGS } from '../data/book-listings.data';
+import { AuthSessionService } from '../services/auth.service';
+import { BookListing } from '../models/book.model';
+import { ListingStatusApi, ListingsApiService } from '../services/listings-api.service';
 
 type ListingTab = 'Active Listings' | 'Sold' | 'Drafts';
 
@@ -19,8 +23,20 @@ type ListingTab = 'Active Listings' | 'Sold' | 'Drafts';
         <a routerLink="/sell" class="rounded-xl bg-blue-600 px-5 py-3 text-lg font-bold text-white shadow-md shadow-blue-600/30">Add New Listing</a>
       </div>
 
+      @if (!currentSellerId()) {
+        <div class="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center dark:border-slate-700 dark:bg-slate-900">
+          <h2 class="text-3xl font-bold text-slate-900 dark:text-slate-100">No seller session found</h2>
+          <p class="mt-2 text-lg text-slate-500 dark:text-slate-400">Log in to view only your own listings.</p>
+        </div>
+      } @else {
       <div class="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
         <div>
+          @if (isLoading()) {
+            <p class="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300">
+              Loading your listings...
+            </p>
+          }
+
           <div class="inline-flex rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-900">
             @for (tab of tabs; track tab) {
               <button type="button" (click)="activeTab.set(tab)" [class]="activeTab() === tab ? activeTabClass : inactiveTabClass">
@@ -48,17 +64,37 @@ type ListingTab = 'Active Listings' | 'Sold' | 'Drafts';
                     </div>
                     <div class="mt-3 flex flex-wrap items-center gap-3 text-sm text-slate-500 dark:text-slate-400">
                       <span class="text-3xl font-black text-slate-900 dark:text-slate-100">{{ listing.price | currency: 'USD' : 'symbol' : '1.0-0' }}</span>
-                      <span>Views {{ viewCount(listing.id) }}</span>
+                      <span>Views {{ listing.viewCount ?? 0 }}</span>
                     </div>
                   </div>
                   <div class="flex items-center gap-2 sm:flex-col">
-                    <button class="rounded-xl border border-slate-300 px-3 py-1 text-sm font-semibold dark:border-slate-700">View</button>
-                    <button class="rounded-xl border border-slate-300 px-3 py-1 text-sm font-semibold dark:border-slate-700">Edit</button>
-                    <button class="rounded-xl border border-red-300 px-3 py-1 text-sm font-semibold text-red-600 dark:border-red-900 dark:text-red-300">Delete</button>
+                    <a [routerLink]="['/book', listing.id]" class="rounded-xl border border-slate-300 px-3 py-1 text-sm font-semibold dark:border-slate-700">View</a>
+                    <button
+                      type="button"
+                      (click)="changeStatus(listing)"
+                      [disabled]="isActionBusy(listing.id)"
+                      class="rounded-xl border border-slate-300 px-3 py-1 text-sm font-semibold dark:border-slate-700"
+                    >
+                      {{ listing.status === 'ACTIVE' ? 'Mark Sold' : listing.status === 'SOLD' ? 'Move to Draft' : 'Activate' }}
+                    </button>
+                    <button
+                      type="button"
+                      (click)="deleteListing(listing.id)"
+                      [disabled]="isActionBusy(listing.id)"
+                      class="rounded-xl border border-red-300 px-3 py-1 text-sm font-semibold text-red-600 dark:border-red-900 dark:text-red-300"
+                    >
+                      Delete
+                    </button>
                   </div>
                 </article>
               }
             </div>
+          }
+
+          @if (loadError(); as errorMessage) {
+            <p class="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+              {{ errorMessage }}
+            </p>
           }
         </div>
 
@@ -71,7 +107,7 @@ type ListingTab = 'Active Listings' | 'Sold' | 'Drafts';
             </div>
             <div class="rounded-xl bg-slate-100 p-4 dark:bg-slate-800">
               <p class="text-sm text-slate-500 dark:text-slate-400">Active Listings</p>
-              <p class="text-3xl font-black text-slate-900 dark:text-slate-100">{{ activeListings.length }}</p>
+              <p class="text-3xl font-black text-slate-900 dark:text-slate-100">{{ activeListings().length }}</p>
             </div>
             <div class="rounded-xl bg-slate-100 p-4 dark:bg-slate-800">
               <p class="text-sm text-slate-500 dark:text-slate-400">Sold Listings</p>
@@ -80,17 +116,42 @@ type ListingTab = 'Active Listings' | 'Sold' | 'Drafts';
           </div>
         </aside>
       </div>
+      }
     </section>
   `
 })
 export class MyListingsPageComponent {
+  private readonly authSession = inject(AuthSessionService);
+  private readonly listingsApi = inject(ListingsApiService);
+
   readonly tabs: ListingTab[] = ['Active Listings', 'Sold', 'Drafts'];
   readonly activeTab = signal<ListingTab>('Active Listings');
-  readonly activeListings = BOOK_LISTINGS.slice(0, 4);
+  readonly loadError = signal<string | null>(null);
+  readonly isLoading = signal(false);
+  readonly actionBusyIds = signal<Record<string, boolean>>({});
+  readonly refreshTick = signal(0);
+
+  private readonly emptyGroups: Record<ListingStatusApi, BookListing[]> = {
+    ACTIVE: [],
+    SOLD: [],
+    DRAFT: []
+  };
+
+  readonly currentSellerId = computed(() => this.authSession.sellerId());
+  readonly groupedListings = signal<Record<ListingStatusApi, BookListing[]>>(this.emptyGroups);
+  readonly activeListings = computed(() => this.groupedListings().ACTIVE);
+  readonly soldListings = computed(() => this.groupedListings().SOLD);
+  readonly draftListings = computed(() => this.groupedListings().DRAFT);
 
   readonly tabListings = computed(() => {
     if (this.activeTab() === 'Active Listings') {
-      return this.activeListings;
+      return this.activeListings();
+    }
+    if (this.activeTab() === 'Sold') {
+      return this.soldListings();
+    }
+    if (this.activeTab() === 'Drafts') {
+      return this.draftListings();
     }
     return [];
   });
@@ -99,8 +160,84 @@ export class MyListingsPageComponent {
   readonly inactiveTabClass =
     'rounded-lg px-4 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800';
 
-  viewCount(id: string): number {
-    const base = id.charCodeAt(1) * 4;
-    return base + 28;
+  constructor() {
+    toObservable(
+      computed(() => ({
+        sellerId: this.currentSellerId(),
+        refreshTick: this.refreshTick()
+      }))
+    )
+      .pipe(
+        switchMap(({ sellerId }) => {
+          if (!sellerId) {
+            this.groupedListings.set(this.emptyGroups);
+            return of(this.emptyGroups);
+          }
+
+          this.loadError.set(null);
+          this.isLoading.set(true);
+          return this.listingsApi.getMyListings().pipe(
+            catchError(() => {
+              this.loadError.set('Unable to load your listings. Please check your login session and try again.');
+              return of(this.emptyGroups);
+            }),
+            finalize(() => this.isLoading.set(false))
+          );
+        }),
+        takeUntilDestroyed()
+      )
+      .subscribe((grouped) => {
+        this.groupedListings.set(grouped);
+      });
+  }
+
+  isActionBusy(id: string): boolean {
+    return !!this.actionBusyIds()[id];
+  }
+
+  changeStatus(listing: BookListing): void {
+    const currentStatus = listing.status ?? 'ACTIVE';
+    let nextStatus: ListingStatusApi = 'ACTIVE';
+    if (currentStatus === 'ACTIVE') {
+      nextStatus = 'SOLD';
+    } else if (currentStatus === 'SOLD') {
+      nextStatus = 'DRAFT';
+    }
+
+    this.setBusy(listing.id, true);
+    this.listingsApi
+      .updateStatus(listing.id, nextStatus)
+      .pipe(finalize(() => this.setBusy(listing.id, false)))
+      .subscribe({
+        next: () => this.refresh(),
+        error: () => this.loadError.set('Could not change listing status. Please try again.')
+      });
+  }
+
+  deleteListing(listingId: string): void {
+    this.setBusy(listingId, true);
+    this.listingsApi
+      .deleteListing(listingId)
+      .pipe(finalize(() => this.setBusy(listingId, false)))
+      .subscribe({
+        next: () => this.refresh(),
+        error: () => this.loadError.set('Could not delete listing. Please try again.')
+      });
+  }
+
+  private refresh(): void {
+    this.refreshTick.update((value) => value + 1);
+  }
+
+  private setBusy(id: string, busy: boolean): void {
+    this.actionBusyIds.update((current) => {
+      if (busy) {
+        return { ...current, [id]: true };
+      }
+
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
   }
 }

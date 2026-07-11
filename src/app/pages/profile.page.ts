@@ -1,10 +1,12 @@
 import { Component, computed, inject, signal } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
+import { toObservable, toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
-import { map } from 'rxjs';
+import { catchError, map, of, switchMap } from 'rxjs';
 
 import { BookCardComponent } from '../components/book-card.component';
-import { BOOK_LISTINGS, SELLERS } from '../data/book-listings.data';
+import { BookListing } from '../models/book.model';
+import { AuthSessionService } from '../services/auth.service';
+import { ReviewApi, SellerApi, SellersApiService } from '../services/sellers-api.service';
 
 type ProfileTab = 'Listings' | 'Reviews';
 
@@ -12,7 +14,12 @@ type ProfileTab = 'Listings' | 'Reviews';
   selector: 'app-profile-page',
   imports: [BookCardComponent],
   template: `
-    @if (seller(); as profile) {
+    @if (!resolvedSellerId()) {
+      <section class="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center dark:border-slate-700 dark:bg-slate-900">
+        <h1 class="text-3xl font-bold text-slate-900 dark:text-slate-100">Profile unavailable</h1>
+        <p class="mt-2 text-lg text-slate-500 dark:text-slate-400">Log in to view your seller profile.</p>
+      </section>
+    } @else if (seller(); as profile) {
       <section>
         <article class="rounded-2xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
           <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -52,10 +59,10 @@ type ProfileTab = 'Listings' | 'Reviews';
           </div>
         } @else {
           <div class="mt-6 space-y-4">
-            @for (review of reviews; track review.comment) {
+            @for (review of reviews(); track review.id) {
               <article class="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                 <div class="flex items-center justify-between">
-                  <p class="font-bold text-slate-900 dark:text-slate-100">{{ review.name }}</p>
+                  <p class="font-bold text-slate-900 dark:text-slate-100">{{ review.reviewerName }}</p>
                   <p class="font-semibold text-amber-500">{{ review.rating }}</p>
                 </div>
                 <p class="mt-2 text-slate-600 dark:text-slate-300">{{ review.comment }}</p>
@@ -64,34 +71,89 @@ type ProfileTab = 'Listings' | 'Reviews';
           </div>
         }
       </section>
+    } @else {
+      <section class="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center dark:border-slate-700 dark:bg-slate-900">
+        <h1 class="text-3xl font-bold text-slate-900 dark:text-slate-100">Unable to load profile</h1>
+        <p class="mt-2 text-lg text-slate-500 dark:text-slate-400">We could not fetch your seller data right now.</p>
+      </section>
     }
   `
 })
 export class ProfilePageComponent {
   private readonly route = inject(ActivatedRoute);
+  private readonly authSession = inject(AuthSessionService);
+  private readonly sellersApi = inject(SellersApiService);
 
   readonly tabs: ProfileTab[] = ['Listings', 'Reviews'];
   readonly activeTab = signal<ProfileTab>('Listings');
 
-  readonly id = toSignal(this.route.paramMap.pipe(map((params) => params.get('id') ?? 's1')), {
-    initialValue: 's1'
+  readonly routeId = toSignal(this.route.paramMap.pipe(map((params) => params.get('id') ?? 'me')), {
+    initialValue: 'me'
   });
 
-  readonly seller = computed(() => SELLERS.find((person) => person.id === this.id()) ?? SELLERS[0]);
+  readonly resolvedSellerId = computed(() => {
+    const requestedId = this.routeId();
+    const loggedInId = this.authSession.sellerId();
 
-  readonly sellerBooks = computed(() => BOOK_LISTINGS.filter((book) => book.seller.id === this.seller().id));
+    if (requestedId === 'me') {
+      return loggedInId;
+    }
 
-  readonly reviews = [
-    { name: 'Noah B.', rating: 5, comment: 'Great communication and exactly as described.' },
-    { name: 'Priya M.', rating: 4.8, comment: 'Met on campus, smooth transaction and fair price.' },
-    { name: 'Leo R.', rating: 4.9, comment: 'Book was in excellent condition. Highly recommend.' }
-  ] as const;
+    if (!requestedId) {
+      return null;
+    }
+
+    return requestedId;
+  });
+
+  readonly seller = toSignal(
+    toObservable(this.resolvedSellerId).pipe(
+      switchMap((sellerId) => {
+        if (!sellerId) {
+          return of(null);
+        }
+
+        return this.sellersApi.getSellerById(sellerId).pipe(catchError(() => of(null)));
+      })
+    ),
+    { initialValue: null }
+  );
+
+  readonly sellerBooks = toSignal(
+    toObservable(this.resolvedSellerId).pipe(
+      switchMap((sellerId) => {
+        if (!sellerId) {
+          return of([] as BookListing[]);
+        }
+
+        return this.sellersApi
+          .getSellerListings(sellerId, 0, 12)
+          .pipe(map((page) => page.content), catchError(() => of([] as BookListing[])));
+      })
+    ),
+    { initialValue: [] as BookListing[] }
+  );
+
+  readonly reviews = toSignal(
+    toObservable(this.resolvedSellerId).pipe(
+      switchMap((sellerId) => {
+        if (!sellerId) {
+          return of([] as ReviewApi[]);
+        }
+
+        return this.sellersApi
+          .getSellerReviews(sellerId, 0, 10)
+          .pipe(map((page) => page.content), catchError(() => of([] as ReviewApi[])));
+      })
+    ),
+    { initialValue: [] as ReviewApi[] }
+  );
 
   readonly activeTabClass = 'rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white';
   readonly inactiveTabClass =
     'rounded-lg px-4 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800';
 
-  stats(seller: (typeof SELLERS)[number]): Array<{ label: string; value: string | number }> {
+  stats(seller: SellerApi): Array<{ label: string; value: string | number }> {
     return [
       { label: 'Rating', value: `★ ${seller.rating}` },
       { label: 'Books Sold', value: seller.totalSales },

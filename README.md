@@ -12,6 +12,47 @@ ng serve
 
 Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
 
+## Backend Integration
+
+The frontend is integrated with the BookSwap backend OpenAPI service.
+
+- Swagger UI: `http://localhost:8080/swagger-ui/index.html`
+- OpenAPI JSON: `http://localhost:8080/api-docs`
+- Local API base URL (dev): `http://localhost:8080`
+
+### Implemented API Flows
+
+- Authentication:
+	- `POST /api/auth/register`
+	- `POST /api/auth/login`
+- Listings:
+	- `GET /api/listings`
+	- `GET /api/listings/{id}`
+	- `POST /api/listings`
+	- `PATCH /api/listings/{id}/status`
+	- `DELETE /api/listings/{id}`
+	- `GET /api/listings/my`
+- Sellers:
+	- `GET /api/sellers/{id}`
+	- `GET /api/sellers/{id}/listings`
+	- `GET /api/sellers/{id}/reviews`
+
+### JWT Auth Behavior
+
+- Login/register responses provide a JWT token and user profile.
+- The app stores token and seller ID in local storage via `AuthSessionService`.
+- `authInterceptor` automatically adds `Authorization: Bearer <token>` to protected requests.
+- Auth endpoints (`/api/auth/*`) are excluded from token injection.
+
+### Frontend Pages Using Live API
+
+- Browse page loads paginated listings and applies filters/sorting.
+- Book detail page loads listing by ID and related listings by subject.
+- Sell page creates new listing via backend.
+- My Listings page fetches grouped listings from `/api/listings/my`, supports status change and delete.
+- Profile page loads seller profile, seller listings, and seller reviews.
+- Login/Register pages use backend auth and establish frontend session on success.
+
 ## Code scaffolding
 
 Angular CLI includes powerful code scaffolding tools. To generate a new component, run:

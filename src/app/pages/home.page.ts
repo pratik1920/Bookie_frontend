@@ -1,8 +1,11 @@
-import { Component, computed } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
+import { catchError, map, of } from 'rxjs';
 
 import { BookCardComponent } from '../components/book-card.component';
-import { BOOK_LISTINGS, SUBJECTS } from '../data/book-listings.data';
+import { BookListing } from '../models/book.model';
+import { ListingsApiService } from '../services/listings-api.service';
 
 @Component({
   selector: 'app-home-page',
@@ -23,7 +26,7 @@ import { BOOK_LISTINGS, SUBJECTS } from '../data/book-listings.data';
     </section>
 
     <section class="mt-8 grid gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:grid-cols-2 lg:grid-cols-4">
-      @for (stat of stats; track stat.label) {
+      @for (stat of stats(); track stat.label) {
         <article class="rounded-xl border border-slate-100 p-4 text-center dark:border-slate-800">
           <p class="text-4xl font-black text-slate-950 dark:text-slate-100">{{ stat.value }}</p>
           <p class="text-base text-slate-500 dark:text-slate-400">{{ stat.label }}</p>
@@ -41,7 +44,7 @@ import { BOOK_LISTINGS, SUBJECTS } from '../data/book-listings.data';
       </div>
 
       <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        @for (subject of subjectCards; track subject.label) {
+        @for (subject of subjectCards(); track subject.label) {
           <a routerLink="/browse" class="rounded-2xl border border-slate-200 bg-white p-5 transition hover:border-blue-400 hover:shadow-md dark:border-slate-800 dark:bg-slate-900">
             <h3 class="text-2xl font-bold text-slate-900 dark:text-slate-100">{{ subject.label }}</h3>
             <p class="text-lg text-slate-500 dark:text-slate-400">{{ subject.count }} items</p>
@@ -66,7 +69,9 @@ import { BOOK_LISTINGS, SUBJECTS } from '../data/book-listings.data';
       </div>
 
       <div class="mt-8 text-center">
-        <a routerLink="/browse" class="inline-flex rounded-xl bg-blue-600 px-6 py-3 text-lg font-bold text-white shadow-lg shadow-blue-600/30 transition hover:bg-blue-500">Browse All 8+ Listings</a>
+        <a routerLink="/browse" class="inline-flex rounded-xl bg-blue-600 px-6 py-3 text-lg font-bold text-white shadow-lg shadow-blue-600/30 transition hover:bg-blue-500">
+          Browse All {{ totalActiveListings() > 0 ? totalActiveListings() : '' }}{{ totalActiveListings() > 0 ? ' ' : '' }}Listings
+        </a>
       </div>
     </section>
 
@@ -104,23 +109,100 @@ import { BOOK_LISTINGS, SUBJECTS } from '../data/book-listings.data';
   `
 })
 export class HomePageComponent {
-  readonly stats = [
-    { value: '2,500+', label: 'Books Listed' },
-    { value: '1,200+', label: 'Active Students' },
-    { value: '$450', label: 'Avg. Savings' },
-    { value: '4.8', label: 'Avg. Rating' }
-  ] as const;
+  private readonly listingsApi = inject(ListingsApiService);
+  private readonly emptyListings = [] as BookListing[];
+  private readonly emptyListingsPage = {
+    content: [] as BookListing[],
+    totalPages: 0,
+    totalElements: 0,
+    page: 0,
+    size: 4,
+    isFirst: true,
+    isLast: true
+  };
 
-  readonly subjectCards = SUBJECTS.map((label, index) => ({
-    label,
-    count: [312, 248, 540, 189, 201, 178][index]
-  }));
-
-  readonly newestBooks = computed(() =>
-    [...BOOK_LISTINGS]
-      .sort((a, b) => new Date(b.postedDate).getTime() - new Date(a.postedDate).getTime())
-      .slice(0, 4)
+  readonly newestListingsPage = toSignal(
+    this.listingsApi
+      .getListings({
+        status: 'ACTIVE',
+        sortBy: 'NEWEST_FIRST',
+        page: 0,
+        size: 4
+      })
+      .pipe(catchError(() => of(this.emptyListingsPage))),
+    { initialValue: this.emptyListingsPage }
   );
+
+  readonly totalActiveListings = computed(() => this.newestListingsPage().totalElements);
+
+  readonly allActiveListings = toSignal(
+    this.listingsApi
+      .getListings({
+        status: 'ACTIVE',
+        sortBy: 'NEWEST_FIRST',
+        page: 0,
+        size: 500
+      })
+      .pipe(
+        map((page) => page.content),
+        catchError(() => of(this.emptyListings))
+      ),
+    { initialValue: this.emptyListings }
+  );
+
+  readonly activeStudentsCount = computed(() => {
+    const sellerIds = new Set(this.allActiveListings().map((listing) => listing.seller.id));
+    return sellerIds.size;
+  });
+
+  readonly averageSavingsAmount = computed(() => {
+    const listings = this.allActiveListings();
+    if (listings.length === 0) {
+      return 0;
+    }
+
+    const totalSavings = listings.reduce((sum, listing) => sum + (listing.originalPrice - listing.price), 0);
+    return totalSavings / listings.length;
+  });
+
+  readonly averageSellerRating = computed(() => {
+    const sellerRatings = new Map<string, number>();
+    for (const listing of this.allActiveListings()) {
+      sellerRatings.set(listing.seller.id, listing.seller.rating);
+    }
+
+    const ratings = [...sellerRatings.values()];
+    if (ratings.length === 0) {
+      return 0;
+    }
+
+    return ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length;
+  });
+
+  readonly stats = computed(() => [
+    { value: `${this.totalActiveListings()}`, label: 'Books Listed' },
+    { value: `${this.activeStudentsCount()}`, label: 'Active Students' },
+    { value: this.formatCurrency(this.averageSavingsAmount()), label: 'Avg. Savings' },
+    { value: this.averageSellerRating().toFixed(1), label: 'Avg. Rating' }
+  ]);
+
+  readonly subjectCards = computed(() => {
+    const subjectCounts = new Map<string, number>();
+
+    for (const listing of this.allActiveListings()) {
+      const subject = listing.subject.trim();
+      if (!subject) {
+        continue;
+      }
+      subjectCounts.set(subject, (subjectCounts.get(subject) ?? 0) + 1);
+    }
+
+    return [...subjectCounts.entries()]
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  });
+
+  readonly newestBooks = computed(() => this.newestListingsPage().content);
 
   readonly steps = [
     {
@@ -148,4 +230,12 @@ export class HomePageComponent {
     { title: 'Seller Ratings', description: 'Transparent reviews from real buyers' },
     { title: 'Safe Meetups', description: 'Campus exchange guidelines & recommended spots' }
   ] as const;
+
+  private formatCurrency(value: number): string {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      maximumFractionDigits: 0
+    }).format(value);
+  }
 }
