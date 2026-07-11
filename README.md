@@ -19,6 +19,7 @@ The frontend is integrated with the BookSwap backend OpenAPI service.
 - Swagger UI: `http://localhost:8080/swagger-ui/index.html`
 - OpenAPI JSON: `http://localhost:8080/api-docs`
 - Local API base URL (dev): `http://localhost:8080`
+- Backend handoff plan for cart + checkout: `docs/cart-checkout-backend-plan.md`
 
 ### Implemented API Flows
 
@@ -48,10 +49,22 @@ The frontend is integrated with the BookSwap backend OpenAPI service.
 
 - Browse page loads paginated listings and applies filters/sorting.
 - Book detail page loads listing by ID and related listings by subject.
+- Book detail page supports Add to Cart with single-seller cart enforcement.
 - Sell page creates new listing via backend.
+- Sell and Browse subject options are dynamically sourced from active listings; Sell also supports custom subjects.
 - My Listings page fetches grouped listings from `/api/listings/my`, supports status change and delete.
 - Profile page loads seller profile, seller listings, and seller reviews.
+- Cart page and Payment Options page are frontend-only checkout flows for UI/UX validation.
 - Login/Register pages use backend auth and establish frontend session on success.
+
+### Session and Cart UX
+
+- Logout is available from header navigation (desktop/mobile) and from the profile page.
+- Cart stores selected books in local storage and allows checkout only when all books belong to the same seller.
+- Checkout integration is feature-flagged:
+	- `useBackendCheckout=false` -> frontend demo checkout
+	- `useBackendCheckout=true` -> backend checkout API mode
+- Cart backend integration scaffold exists in `src/app/services/cart-api.service.ts` and can be enabled with `useBackendCart=true` after backend rollout.
 
 ## Code scaffolding
 

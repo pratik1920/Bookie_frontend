@@ -12,6 +12,51 @@ type SortOption = 'Newest First' | 'Price: Low to High' | 'Price: High to Low' |
 @Component({
   selector: 'app-browse-page',
   imports: [BookCardComponent],
+  styles: [`
+    .loader-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.75rem;
+      border: 1px solid rgba(147, 197, 253, 0.28);
+      border-radius: 16px;
+      background: linear-gradient(140deg, rgba(15, 23, 42, 0.12), rgba(59, 130, 246, 0.08));
+      backdrop-filter: blur(14px) saturate(120%);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 12px 30px rgba(15, 23, 42, 0.08);
+      padding: 0.8rem 1rem;
+      color: #dbeafe;
+    }
+
+    .loader-ring {
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      border: 2px solid rgba(147, 197, 253, 0.24);
+      border-top-color: rgba(96, 165, 250, 1);
+      border-right-color: rgba(59, 130, 246, 0.9);
+      background: radial-gradient(circle at 50% 50%, rgba(191, 219, 254, 0.42), rgba(191, 219, 254, 0));
+      box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.08), 0 0 18px rgba(59, 130, 246, 0.28);
+      animation: spin 0.85s linear infinite, pulseGlow 1.5s ease-in-out infinite;
+      flex-shrink: 0;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    @keyframes pulseGlow {
+      0%,
+      100% {
+        transform: scale(1);
+        opacity: 0.88;
+      }
+      50% {
+        transform: scale(1.1);
+        opacity: 1;
+      }
+    }
+  `],
   template: `
     <section>
       <h1 class="text-5xl font-extrabold text-slate-950 dark:text-slate-100">Browse Books</h1>
@@ -99,8 +144,11 @@ type SortOption = 'Newest First' | 'Price: Low to High' | 'Price: High to Low' |
 
         <section>
           @if (isLoading()) {
-            <div class="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300">
-              Loading listings...
+            <div class="mb-4">
+              <div class="loader-chip text-sm font-semibold">
+                <span class="loader-ring"></span>
+                <span>Loading listings...</span>
+              </div>
             </div>
           }
 

@@ -45,6 +45,16 @@ export const routes: Routes = [
 		loadComponent: () => import('./pages/my-listings.page').then((m) => m.MyListingsPageComponent)
 	},
 	{
+		path: 'cart',
+		canActivate: [authGuard],
+		loadComponent: () => import('./pages/cart.page').then((m) => m.CartPageComponent)
+	},
+	{
+		path: 'payment-options',
+		canActivate: [authGuard],
+		loadComponent: () => import('./pages/payment-options.page').then((m) => m.PaymentOptionsPageComponent)
+	},
+	{
 		path: 'profile/:id',
 		canActivate: [authGuard],
 		loadComponent: () => import('./pages/profile.page').then((m) => m.ProfilePageComponent)

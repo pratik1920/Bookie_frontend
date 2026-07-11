@@ -1,4 +1,4 @@
-import { Component, computed, inject } from '@angular/core';
+import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import { catchError, map, of } from 'rxjs';
@@ -11,16 +11,36 @@ import { ListingsApiService } from '../services/listings-api.service';
   selector: 'app-home-page',
   imports: [RouterLink, BookCardComponent],
   template: `
-    <section class="relative overflow-hidden rounded-3xl bg-gradient-to-br from-blue-600 via-blue-600 to-indigo-800 px-6 py-16 text-white shadow-xl sm:px-10 lg:px-14">
+    <section
+      class="relative overflow-hidden rounded-3xl px-6 py-16 text-white shadow-xl transition-all duration-700 sm:px-10 lg:px-14"
+      [style.background]="activeHeroSlide().background"
+    >
       <div class="absolute -left-14 top-8 h-40 w-40 rounded-full bg-white/20 blur-3xl"></div>
       <div class="absolute -right-12 bottom-8 h-48 w-48 rounded-full bg-indigo-400/40 blur-3xl"></div>
-      <div class="relative max-w-3xl">
-        <span class="inline-flex items-center rounded-full bg-white/20 px-4 py-1 text-sm font-semibold backdrop-blur">Built for students, by students</span>
-        <h1 class="mt-5 text-5xl font-extrabold leading-tight sm:text-6xl">Buy & Sell Textbooks for Less</h1>
-        <p class="mt-5 max-w-2xl text-xl text-blue-100">Save up to 80% on textbooks, notes, and study guides. Connect directly with students at your university.</p>
+      <div
+        class="relative max-w-3xl transition-all duration-500 ease-out"
+        [class.opacity-0]="!isSlideVisible()"
+        [class.translate-y-2]="!isSlideVisible()"
+        [class.opacity-100]="isSlideVisible()"
+        [class.translate-y-0]="isSlideVisible()"
+      >
+        <span class="inline-flex items-center rounded-full px-4 py-1 text-sm font-semibold backdrop-blur" [style.background]="activeHeroSlide().tagBackground">{{ activeHeroSlide().tag }}</span>
+        <h1 class="mt-5 text-5xl font-extrabold leading-tight sm:text-6xl">{{ activeHeroSlide().title }}</h1>
+        <p class="mt-5 max-w-2xl text-xl text-blue-100">{{ activeHeroSlide().description }}</p>
         <div class="mt-8 flex flex-wrap gap-3">
-          <a routerLink="/browse" class="rounded-xl bg-white px-5 py-3 text-base font-bold text-blue-700 transition hover:bg-blue-50">Browse All Books</a>
-          <a routerLink="/sell" class="rounded-xl border border-white/60 px-5 py-3 text-base font-bold text-white transition hover:bg-white/10">Start Selling</a>
+          <a [routerLink]="activeHeroSlide().primaryLink" class="rounded-xl bg-white px-5 py-3 text-base font-bold text-blue-700 transition hover:bg-blue-50">{{ activeHeroSlide().primaryCta }}</a>
+          <a [routerLink]="activeHeroSlide().secondaryLink" class="rounded-xl border border-white/60 px-5 py-3 text-base font-bold text-white transition hover:bg-white/10">{{ activeHeroSlide().secondaryCta }}</a>
+        </div>
+        <div class="mt-6 flex items-center gap-2">
+          @for (slide of heroSlides; track slide.title; let i = $index) {
+            <button
+              type="button"
+              class="h-2.5 rounded-full transition-all"
+              [class]="i === activeSlideIndex() ? 'w-8 bg-white' : 'w-2.5 bg-white/45 hover:bg-white/70'"
+              [attr.aria-label]="'Go to slide ' + (i + 1)"
+              (click)="goToSlide(i)"
+            ></button>
+          }
         </div>
       </div>
     </section>
@@ -110,6 +130,8 @@ import { ListingsApiService } from '../services/listings-api.service';
 })
 export class HomePageComponent {
   private readonly listingsApi = inject(ListingsApiService);
+  private readonly destroyRef = inject(DestroyRef);
+  private slideTransitionTimeout: ReturnType<typeof setTimeout> | null = null;
   private readonly emptyListings = [] as BookListing[];
   private readonly emptyListingsPage = {
     content: [] as BookListing[],
@@ -120,6 +142,59 @@ export class HomePageComponent {
     isFirst: true,
     isLast: true
   };
+
+  readonly heroSlides = [
+    {
+      tag: 'Built for students, by students',
+      title: 'Buy & Sell Textbooks for Less',
+      description: 'Save up to 80% on textbooks, notes, and study guides. Connect directly with students at your university.',
+      primaryCta: 'Browse All Books',
+      primaryLink: '/browse',
+      secondaryCta: 'Start Selling',
+      secondaryLink: '/sell',
+      background: 'linear-gradient(135deg, rgb(37 99 235), rgb(37 99 235), rgb(67 56 202))',
+      tagBackground: 'rgba(255, 255, 255, 0.2)'
+    },
+    {
+      tag: 'New this week',
+      title: 'Fresh Campus Deals Every Day',
+      description: 'Discover recently listed books and notes before they are gone. Fast pickups, fair prices, zero platform spam.',
+      primaryCta: 'See New Listings',
+      primaryLink: '/browse',
+      secondaryCta: 'List in 2 Minutes',
+      secondaryLink: '/sell',
+      background: 'linear-gradient(135deg, rgb(14 116 144), rgb(2 132 199), rgb(30 64 175))',
+      tagBackground: 'rgba(16, 185, 129, 0.26)'
+    },
+    {
+      tag: 'Safe student marketplace',
+      title: 'Trusted Sellers. Real Savings.',
+      description: 'Use seller ratings, clear profiles, and campus meetup tips to buy with confidence and sell without hassle.',
+      primaryCta: 'Find Trusted Sellers',
+      primaryLink: '/browse',
+      secondaryCta: 'Create Your Listing',
+      secondaryLink: '/sell',
+      background: 'linear-gradient(135deg, rgb(30 58 138), rgb(79 70 229), rgb(168 85 247))',
+      tagBackground: 'rgba(255, 255, 255, 0.24)'
+    }
+  ] as const;
+
+  readonly activeSlideIndex = signal(0);
+  readonly isSlideVisible = signal(true);
+  readonly activeHeroSlide = computed(() => this.heroSlides[this.activeSlideIndex()]);
+
+  constructor() {
+    const intervalId = setInterval(() => {
+      this.transitionToSlide((this.activeSlideIndex() + 1) % this.heroSlides.length);
+    }, 4200);
+
+    this.destroyRef.onDestroy(() => {
+      clearInterval(intervalId);
+      if (this.slideTransitionTimeout) {
+        clearTimeout(this.slideTransitionTimeout);
+      }
+    });
+  }
 
   readonly newestListingsPage = toSignal(
     this.listingsApi
@@ -230,6 +305,30 @@ export class HomePageComponent {
     { title: 'Seller Ratings', description: 'Transparent reviews from real buyers' },
     { title: 'Safe Meetups', description: 'Campus exchange guidelines & recommended spots' }
   ] as const;
+
+  goToSlide(index: number): void {
+    if (index < 0 || index >= this.heroSlides.length) {
+      return;
+    }
+    this.transitionToSlide(index);
+  }
+
+  private transitionToSlide(index: number): void {
+    if (index === this.activeSlideIndex()) {
+      return;
+    }
+
+    if (this.slideTransitionTimeout) {
+      clearTimeout(this.slideTransitionTimeout);
+    }
+
+    this.isSlideVisible.set(false);
+    this.slideTransitionTimeout = setTimeout(() => {
+      this.activeSlideIndex.set(index);
+      this.isSlideVisible.set(true);
+      this.slideTransitionTimeout = null;
+    }, 220);
+  }
 
   private formatCurrency(value: number): string {
     return new Intl.NumberFormat('en-US', {

@@ -1,18 +1,20 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { toObservable, toSignal } from '@angular/core/rxjs-interop';
+import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { Router } from '@angular/router';
 import { ActivatedRoute } from '@angular/router';
-import { catchError, map, of, switchMap } from 'rxjs';
+import { catchError, finalize, map, of, switchMap } from 'rxjs';
 
 import { BookCardComponent } from '../components/book-card.component';
 import { BookListing } from '../models/book.model';
 import { AuthSessionService } from '../services/auth.service';
-import { ReviewApi, SellerApi, SellersApiService } from '../services/sellers-api.service';
+import { CreateSellerReviewRequest, ReviewApi, SellerApi, SellersApiService } from '../services/sellers-api.service';
 
 type ProfileTab = 'Listings' | 'Reviews';
 
 @Component({
   selector: 'app-profile-page',
-  imports: [BookCardComponent],
+  imports: [BookCardComponent, ReactiveFormsModule],
   template: `
     @if (!resolvedSellerId()) {
       <section class="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center dark:border-slate-700 dark:bg-slate-900">
@@ -31,16 +33,75 @@ type ProfileTab = 'Listings' | 'Reviews';
                 <p class="text-sm text-slate-400 dark:text-slate-500">Member since {{ profile.memberSince }}</p>
               </div>
             </div>
+            <button
+              type="button"
+              (click)="logout()"
+              class="rounded-xl border border-slate-300 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-100 dark:hover:bg-slate-800"
+            >
+              Logout
+            </button>
           </div>
 
           <div class="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             @for (stat of stats(profile); track stat.label) {
-              <div class="rounded-xl bg-slate-100 p-4 dark:bg-slate-800">
+              <div [class]="stat.disabled ? 'rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 opacity-75 dark:border-slate-700 dark:bg-slate-900' : 'rounded-xl bg-slate-100 p-4 dark:bg-slate-800'">
                 <p class="text-sm text-slate-500 dark:text-slate-400">{{ stat.label }}</p>
-                <p class="text-2xl font-black text-slate-900 dark:text-slate-100">{{ stat.value }}</p>
+                <p [class]="stat.disabled ? 'text-sm font-semibold text-slate-700 dark:text-slate-200' : 'text-2xl font-black text-slate-900 dark:text-slate-100'">{{ stat.value }}</p>
               </div>
             }
           </div>
+
+          @if (canRateSeller()) {
+            <div class="mt-6 border-t border-slate-200 pt-5 dark:border-slate-700">
+              <button
+                type="button"
+                (click)="showReviewForm.update((value) => !value)"
+                class="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white shadow-md shadow-indigo-600/30 hover:bg-indigo-500"
+              >
+                {{ showReviewForm() ? 'Cancel Rating' : 'Rate Seller' }}
+              </button>
+
+              @if (showReviewForm()) {
+                <form [formGroup]="reviewForm" (ngSubmit)="submitReview()" class="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60">
+                  <label class="grid gap-1">
+                    <span class="text-sm font-semibold text-slate-700 dark:text-slate-200">Rating</span>
+                    <select formControlName="rating" class="rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-900">
+                      <option [ngValue]="5">5 - Excellent</option>
+                      <option [ngValue]="4">4 - Good</option>
+                      <option [ngValue]="3">3 - Average</option>
+                      <option [ngValue]="2">2 - Poor</option>
+                      <option [ngValue]="1">1 - Bad</option>
+                    </select>
+                  </label>
+
+                  <label class="grid gap-1">
+                    <span class="text-sm font-semibold text-slate-700 dark:text-slate-200">Comment</span>
+                    <textarea formControlName="comment" rows="3" placeholder="Share your experience with this seller" class="rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-900"></textarea>
+                  </label>
+
+                  @if (reviewError(); as reviewErrorMessage) {
+                    <p class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+                      {{ reviewErrorMessage }}
+                    </p>
+                  }
+
+                  @if (reviewSuccess(); as reviewSuccessMessage) {
+                    <p class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
+                      {{ reviewSuccessMessage }}
+                    </p>
+                  }
+
+                  <button
+                    type="submit"
+                    [disabled]="isSubmittingReview() || reviewForm.invalid"
+                    class="justify-self-start rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    {{ isSubmittingReview() ? 'Submitting...' : 'Submit Rating' }}
+                  </button>
+                </form>
+              }
+            </div>
+          }
         </article>
 
         <div class="mt-6 inline-flex rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-900">
@@ -81,11 +142,23 @@ type ProfileTab = 'Listings' | 'Reviews';
 })
 export class ProfilePageComponent {
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly fb = inject(FormBuilder);
   private readonly authSession = inject(AuthSessionService);
   private readonly sellersApi = inject(SellersApiService);
 
   readonly tabs: ProfileTab[] = ['Listings', 'Reviews'];
   readonly activeTab = signal<ProfileTab>('Listings');
+  readonly refreshKey = signal(0);
+  readonly showReviewForm = signal(false);
+  readonly isSubmittingReview = signal(false);
+  readonly reviewError = signal<string | null>(null);
+  readonly reviewSuccess = signal<string | null>(null);
+
+  readonly reviewForm = this.fb.nonNullable.group({
+    rating: this.fb.nonNullable.control(5, [Validators.min(1), Validators.max(5)]),
+    comment: this.fb.nonNullable.control('', [Validators.required, Validators.minLength(5), Validators.maxLength(500)])
+  });
 
   readonly routeId = toSignal(this.route.paramMap.pipe(map((params) => params.get('id') ?? 'me')), {
     initialValue: 'me'
@@ -106,9 +179,25 @@ export class ProfilePageComponent {
     return requestedId;
   });
 
+  readonly canRateSeller = computed(() => {
+    const viewedSellerId = this.resolvedSellerId();
+    const loggedInSellerId = this.authSession.sellerId();
+
+    if (!viewedSellerId || !loggedInSellerId) {
+      return false;
+    }
+
+    return viewedSellerId !== loggedInSellerId;
+  });
+
   readonly seller = toSignal(
-    toObservable(this.resolvedSellerId).pipe(
-      switchMap((sellerId) => {
+    toObservable(
+      computed(() => ({
+        sellerId: this.resolvedSellerId(),
+        refresh: this.refreshKey()
+      }))
+    ).pipe(
+      switchMap(({ sellerId }) => {
         if (!sellerId) {
           return of(null);
         }
@@ -120,8 +209,13 @@ export class ProfilePageComponent {
   );
 
   readonly sellerBooks = toSignal(
-    toObservable(this.resolvedSellerId).pipe(
-      switchMap((sellerId) => {
+    toObservable(
+      computed(() => ({
+        sellerId: this.resolvedSellerId(),
+        refresh: this.refreshKey()
+      }))
+    ).pipe(
+      switchMap(({ sellerId }) => {
         if (!sellerId) {
           return of([] as BookListing[]);
         }
@@ -135,8 +229,13 @@ export class ProfilePageComponent {
   );
 
   readonly reviews = toSignal(
-    toObservable(this.resolvedSellerId).pipe(
-      switchMap((sellerId) => {
+    toObservable(
+      computed(() => ({
+        sellerId: this.resolvedSellerId(),
+        refresh: this.refreshKey()
+      }))
+    ).pipe(
+      switchMap(({ sellerId }) => {
         if (!sellerId) {
           return of([] as ReviewApi[]);
         }
@@ -153,12 +252,65 @@ export class ProfilePageComponent {
   readonly inactiveTabClass =
     'rounded-lg px-4 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800';
 
-  stats(seller: SellerApi): Array<{ label: string; value: string | number }> {
+  stats(seller: SellerApi): Array<{ label: string; value: string | number; disabled?: boolean }> {
     return [
       { label: 'Rating', value: `★ ${seller.rating}` },
       { label: 'Books Sold', value: seller.totalSales },
-      { label: 'Response Time', value: seller.responseTime },
-      { label: 'Response Rate', value: seller.responseRate }
+      { label: 'Response Time', value: 'Will be coming soon', disabled: true },
+      { label: 'Response Rate', value: 'Will be coming soon', disabled: true }
     ];
+  }
+
+  logout(): void {
+    this.authSession.clearSession();
+    this.router.navigate(['/login']);
+  }
+
+  submitReview(): void {
+    if (!this.canRateSeller()) {
+      this.reviewError.set('You cannot rate yourself.');
+      return;
+    }
+
+    if (this.reviewForm.invalid) {
+      this.reviewForm.markAllAsTouched();
+      return;
+    }
+
+    const sellerId = this.resolvedSellerId();
+    if (!sellerId) {
+      this.reviewError.set('Seller not found.');
+      return;
+    }
+
+    this.reviewError.set(null);
+    this.reviewSuccess.set(null);
+    this.isSubmittingReview.set(true);
+
+    const formValue = this.reviewForm.getRawValue();
+    const payload: CreateSellerReviewRequest = {
+      rating: formValue.rating,
+      comment: formValue.comment.trim()
+    };
+
+    this.sellersApi
+      .createSellerReview(sellerId, payload)
+      .pipe(finalize(() => this.isSubmittingReview.set(false)))
+      .subscribe({
+        next: () => {
+          this.reviewSuccess.set('Thanks! Your rating has been submitted.');
+          this.reviewForm.reset({ rating: 5, comment: '' });
+          this.activeTab.set('Reviews');
+          this.showReviewForm.set(false);
+          this.refreshKey.update((value) => value + 1);
+        },
+        error: (error: { error?: { message?: string; code?: string } }) => {
+          if (error?.error?.code === 'SELF_REVIEW_NOT_ALLOWED') {
+            this.reviewError.set('You cannot rate yourself.');
+            return;
+          }
+          this.reviewError.set(error?.error?.message ?? 'Unable to submit rating right now.');
+        }
+      });
   }
 }

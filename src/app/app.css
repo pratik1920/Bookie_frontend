@@ -1,3 +1,49 @@
 :host {
 	display: block;
 }
+
+.app-shell {
+	position: relative;
+	isolation: isolate;
+	background-color: #eaf1f9;
+	background-image:
+		radial-gradient(120% 90% at 12% -8%, rgba(56, 189, 248, 0.24), transparent 56%),
+		radial-gradient(90% 78% at 88% 10%, rgba(129, 140, 248, 0.2), transparent 50%),
+		radial-gradient(72% 90% at 25% 100%, rgba(45, 212, 191, 0.14), transparent 56%),
+		linear-gradient(180deg, #edf4fb 0%, #e7eef7 100%);
+}
+
+.app-shell::before {
+	content: '';
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	background-image:
+		radial-gradient(60% 40% at 10% 18%, rgba(255, 255, 255, 0.48), transparent 76%),
+		radial-gradient(45% 35% at 88% 20%, rgba(224, 231, 255, 0.42), transparent 74%),
+		linear-gradient(180deg, rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0.08));
+	opacity: 0.9;
+	z-index: -1;
+}
+
+.app-main {
+	position: relative;
+	z-index: 1;
+}
+
+:host-context(.dark) .app-shell {
+	background-color: #02091f;
+	background-image:
+		radial-gradient(120% 88% at 12% -5%, rgba(37, 99, 235, 0.2), transparent 60%),
+		radial-gradient(95% 88% at 88% 10%, rgba(79, 70, 229, 0.2), transparent 52%),
+		radial-gradient(90% 110% at 35% 100%, rgba(8, 145, 178, 0.14), transparent 58%),
+		linear-gradient(180deg, #030b24 0%, #020617 100%);
+}
+
+:host-context(.dark) .app-shell::before {
+	background-image:
+		radial-gradient(60% 44% at 12% 16%, rgba(37, 99, 235, 0.18), transparent 74%),
+		radial-gradient(45% 34% at 86% 22%, rgba(99, 102, 241, 0.16), transparent 72%),
+		linear-gradient(180deg, rgba(15, 23, 42, 0.14), rgba(15, 23, 42, 0.02));
+	opacity: 0.7;
+}

@@ -7,9 +7,10 @@ import {
   Validators
 } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { finalize, timeout } from 'rxjs';
+import { catchError, finalize, map, of, timeout } from 'rxjs';
 import { AuthApiService } from '../services/auth-api.service';
 import { AuthSessionService } from '../services/auth.service';
+import { ListingsApiService } from '../services/listings-api.service';
 
 @Component({
   selector: 'app-login-page',
@@ -28,15 +29,15 @@ import { AuthSessionService } from '../services/auth.service';
 
           <div class="kpis">
             <article>
-              <h3>2.5k+</h3>
+              <h3>{{ activeListingsKpi }}</h3>
               <p>Active listings</p>
             </article>
             <article>
-              <h3>1.2k+</h3>
+              <h3>{{ studentSellersKpi }}</h3>
               <p>Student sellers</p>
             </article>
             <article>
-              <h3>4.8/5</h3>
+              <h3>{{ avgSellerRatingKpi }}</h3>
               <p>Avg seller rating</p>
             </article>
           </div>
@@ -113,100 +114,121 @@ import { AuthSessionService } from '../services/auth.service';
 
     .auth-shell {
       position: relative;
-      overflow: hidden;
-      border-radius: 24px;
-      background: linear-gradient(140deg, #dbeafe 0%, #eff6ff 35%, #f8fafc 100%);
-      padding: 1.25rem;
+      overflow: clip;
+      border-radius: 20px;
+      background: linear-gradient(140deg, rgba(191, 219, 254, 0.24), rgba(224, 231, 255, 0.26));
+      border: 1px solid rgba(147, 197, 253, 0.38);
+      padding: 1rem;
       isolation: isolate;
+    }
+
+    .auth-shell::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(56% 38% at 10% 14%, rgba(255, 255, 255, 0.42), transparent 78%),
+        radial-gradient(40% 34% at 88% 20%, rgba(147, 197, 253, 0.24), transparent 76%);
+      pointer-events: none;
+      z-index: -2;
     }
 
     .orb {
       position: absolute;
       border-radius: 999px;
-      filter: blur(55px);
-      opacity: 0.5;
+      filter: blur(52px);
+      opacity: 0.35;
       z-index: -1;
-      animation: drift 8s ease-in-out infinite;
+      animation: drift 10s ease-in-out infinite;
     }
 
     .orb-one {
-      width: 240px;
-      height: 240px;
-      background: #60a5fa;
-      top: -48px;
-      left: -32px;
+      width: 260px;
+      height: 260px;
+      background: #0ea5e9;
+      top: -54px;
+      left: -44px;
     }
 
     .orb-two {
-      width: 300px;
-      height: 300px;
-      background: #38bdf8;
-      bottom: -60px;
+      width: 320px;
+      height: 320px;
+      background: #2563eb;
+      bottom: -78px;
       right: -70px;
-      animation-delay: 1s;
+      animation-delay: 1.3s;
     }
 
     .auth-grid {
       display: grid;
-      gap: 1rem;
+      gap: 0.9rem;
       align-items: stretch;
     }
 
     .panel-rise {
-      animation: riseIn 0.55s ease-out both;
+      animation: riseIn 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
     }
 
     .delay-1 {
-      animation-delay: 0.08s;
+      animation-delay: 0.12s;
     }
 
     .auth-brand,
     .auth-card {
-      border: 1px solid #bfdbfe;
+      border: 1px solid rgba(147, 197, 253, 0.5);
       border-radius: 20px;
-      background: rgba(255, 255, 255, 0.88);
-      backdrop-filter: blur(8px);
-      box-shadow: 0 20px 40px rgba(15, 23, 42, 0.08);
-      padding: 1.5rem;
+      background: linear-gradient(150deg, rgba(239, 246, 255, 0.72), rgba(224, 231, 255, 0.7));
+      backdrop-filter: blur(16px) saturate(125%);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 16px 32px rgba(37, 99, 235, 0.18);
+      padding: 1.35rem;
     }
 
     .badge {
       display: inline-flex;
       border-radius: 999px;
-      background: #dbeafe;
-      color: #1d4ed8;
+      background: rgba(147, 197, 253, 0.34);
+      color: #1e40af;
       font-size: 0.78rem;
-      font-weight: 700;
-      padding: 0.35rem 0.7rem;
+      font-weight: 800;
+      letter-spacing: 0.01em;
+      padding: 0.38rem 0.72rem;
       margin: 0;
     }
 
     .auth-brand h1 {
       margin: 0.75rem 0 0;
       color: #0f172a;
-      font-size: clamp(1.5rem, 3vw, 2rem);
-      line-height: 1.2;
+      font-size: clamp(1.72rem, 3vw, 2.24rem);
+      line-height: 1.16;
+      text-wrap: balance;
     }
 
     .subtext {
-      color: #475569;
+      color: #1e293b;
       margin: 0.75rem 0 0;
-      font-size: 1rem;
+      font-size: 1.02rem;
+      line-height: 1.42;
     }
 
     .kpis {
-      margin-top: 1rem;
+      margin-top: 1.1rem;
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 0.6rem;
+      gap: 0.62rem;
     }
 
     .kpis article {
       border-radius: 12px;
-      background: #eff6ff;
-      border: 1px solid #bfdbfe;
-      padding: 0.7rem;
+      background: rgba(239, 246, 255, 0.62);
+      border: 1px solid rgba(147, 197, 253, 0.64);
+      padding: 0.74rem;
       text-align: center;
+      transition: transform 0.24s ease, box-shadow 0.24s ease;
+    }
+
+    .kpis article:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 20px rgba(30, 64, 175, 0.12);
     }
 
     .kpis h3 {
@@ -218,7 +240,7 @@ import { AuthSessionService } from '../services/auth.service';
 
     .kpis p {
       margin: 0.2rem 0 0;
-      color: #334155;
+      color: #1e293b;
       font-size: 0.72rem;
     }
 
@@ -231,53 +253,65 @@ import { AuthSessionService } from '../services/auth.service';
 
     .title-row h2 {
       margin: 0;
-      color: #0f172a;
-      font-size: 1.45rem;
-      font-weight: 800;
+      color: #020617;
+      font-size: 1.62rem;
+      font-weight: 900;
     }
 
     .ghost-link {
       text-decoration: none;
+      color: #1e40af;
+      font-weight: 800;
+      font-size: 0.92rem;
+      transition: transform 0.2s ease, color 0.2s ease;
+    }
+
+    .ghost-link:hover {
       color: #1d4ed8;
-      font-weight: 700;
-      font-size: 0.9rem;
+      transform: translateX(2px);
     }
 
     .helper {
-      margin: 0.5rem 0 0;
-      color: #475569;
+      margin: 0.55rem 0 0;
+      color: #1e293b;
       font-size: 0.92rem;
     }
 
     .auth-form {
-      margin-top: 1.1rem;
+      margin-top: 1.2rem;
       display: grid;
-      gap: 0.9rem;
+      gap: 0.95rem;
     }
 
     label span {
       display: block;
-      margin-bottom: 0.35rem;
+      margin-bottom: 0.38rem;
       font-weight: 700;
-      color: #334155;
+      color: #0f172a;
       font-size: 0.9rem;
     }
 
     input {
       width: 100%;
-      padding: 0.72rem 0.85rem;
+      padding: 0.76rem 0.88rem;
       border-radius: 12px;
-      border: 1px solid #bfdbfe;
-      background: #ffffff;
-      color: #0f172a;
+      border: 1px solid rgba(147, 197, 253, 0.95);
+      background: rgba(255, 255, 255, 0.94);
+      color: #020617;
       outline: none;
-      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      transition: border-color 0.22s ease, box-shadow 0.22s ease, background-color 0.22s ease;
       box-sizing: border-box;
     }
 
+    input::placeholder {
+      color: #64748b;
+      opacity: 1;
+    }
+
     input:focus {
-      border-color: #60a5fa;
-      box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.2);
+      border-color: #3b82f6;
+      background: #ffffff;
+      box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.22);
     }
 
     .password-wrap {
@@ -295,10 +329,15 @@ import { AuthSessionService } from '../services/auth.service';
       transform: translateY(-50%);
       border: 0;
       background: transparent;
-      color: #2563eb;
+      color: #1d4ed8;
       font-weight: 700;
       cursor: pointer;
       padding: 0.25rem;
+      transition: color 0.2s ease;
+    }
+
+    .toggle-password:hover {
+      color: #1e40af;
     }
 
     small {
@@ -337,13 +376,19 @@ import { AuthSessionService } from '../services/auth.service';
     }
 
     .subtle-btn {
-      border: 1px solid #bfdbfe;
+      border: 1px solid rgba(147, 197, 253, 0.9);
       border-radius: 10px;
-      background: #eff6ff;
-      color: #1d4ed8;
+      background: rgba(239, 246, 255, 0.74);
+      color: #1e40af;
       font-weight: 700;
       padding: 0.45rem 0.65rem;
       cursor: pointer;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .subtle-btn:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 16px rgba(30, 64, 175, 0.12);
     }
 
     .subtle-btn:disabled {
@@ -355,7 +400,8 @@ import { AuthSessionService } from '../services/auth.service';
       width: 100%;
       border: 0;
       border-radius: 12px;
-      background: linear-gradient(90deg, #2563eb 0%, #0ea5e9 100%);
+      background: linear-gradient(100deg, #1d4ed8 0%, #0ea5e9 52%, #0284c7 100%);
+      background-size: 210% 210%;
       color: #fff;
       font-size: 1rem;
       font-weight: 800;
@@ -365,11 +411,14 @@ import { AuthSessionService } from '../services/auth.service';
       justify-content: center;
       align-items: center;
       gap: 0.55rem;
-      transition: transform 0.2s ease, opacity 0.2s ease;
+      transition: transform 0.24s ease, opacity 0.2s ease, box-shadow 0.24s ease;
+      animation: pulseGradient 4.5s ease infinite;
+      box-shadow: 0 10px 24px rgba(29, 78, 216, 0.32);
     }
 
-    .submit-btn:hover {
-      transform: translateY(-1px);
+    .submit-btn:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 14px 26px rgba(2, 132, 199, 0.32);
     }
 
     .submit-btn:disabled {
@@ -378,27 +427,44 @@ import { AuthSessionService } from '../services/auth.service';
     }
 
     .spinner {
-      width: 16px;
-      height: 16px;
-      border-radius: 50%;
-      border: 2px solid rgba(255, 255, 255, 0.6);
-      border-top-color: #fff;
-      animation: spin 0.8s linear infinite;
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      border: 2px solid rgba(255, 255, 255, 0.2);
+      border-top-color: rgba(255, 255, 255, 0.96);
+      border-right-color: rgba(255, 255, 255, 0.72);
+      background: radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0));
+      box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.06), 0 0 18px rgba(14, 165, 233, 0.35);
+      animation: spin 0.85s linear infinite, pulseGlow 1.6s ease-in-out infinite;
     }
 
     @media (min-width: 980px) {
       .auth-shell {
-        padding: 2rem;
+        padding: 1.8rem;
       }
 
       .auth-grid {
         grid-template-columns: 1.1fr 1fr;
-        gap: 1.4rem;
+        gap: 1rem;
       }
 
       .auth-brand,
       .auth-card {
-        padding: 2rem;
+        padding: 1.85rem;
+      }
+    }
+
+    @media (max-width: 979px) {
+      .auth-brand {
+        order: 2;
+      }
+
+      .auth-card {
+        order: 1;
+      }
+
+      .kpis {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
       }
     }
 
@@ -428,6 +494,28 @@ import { AuthSessionService } from '../services/auth.service';
         transform: translate3d(14px, -10px, 0);
       }
     }
+
+    @keyframes pulseGlow {
+      0%,
+      100% {
+        transform: scale(1);
+        opacity: 0.88;
+      }
+      50% {
+        transform: scale(1.1);
+        opacity: 1;
+      }
+    }
+
+    @keyframes pulseGradient {
+      0%,
+      100% {
+        background-position: 0% 50%;
+      }
+      50% {
+        background-position: 100% 50%;
+      }
+    }
   `]
 })
 export class LoginPage {
@@ -439,10 +527,14 @@ export class LoginPage {
   otpStep = false;
   challengeId: string | null = null;
   showPassword = false;
+  activeListingsKpi = '0';
+  studentSellersKpi = '0';
+  avgSellerRatingKpi = '0.0/5';
   readonly returnUrl: string | null;
 
   private readonly authApi = inject(AuthApiService);
   private readonly authSession = inject(AuthSessionService);
+  private readonly listingsApi = inject(ListingsApiService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
 
@@ -455,6 +547,8 @@ export class LoginPage {
       password: ['', Validators.required],
       otp: ['']
     });
+
+    this.loadMarketplaceKpis();
   }
 
   login(): void {
@@ -527,7 +621,7 @@ export class LoginPage {
         next: (response) => {
           this.authSession.setSession(response.token, response.user?.id ?? null);
 
-          this.router.navigateByUrl(this.returnUrl || '/browse');
+          this.router.navigateByUrl(this.returnUrl || '/home');
         },
         error: (error) => {
           this.errorMessage = this.resolveErrorMessage(error, 'Invalid OTP');
@@ -578,5 +672,53 @@ export class LoginPage {
     this.loginForm.get('otp')?.reset('');
     this.loginForm.get('otp')?.clearValidators();
     this.loginForm.get('otp')?.updateValueAndValidity();
+  }
+
+  private loadMarketplaceKpis(): void {
+    this.listingsApi
+      .getListings({
+        status: 'ACTIVE',
+        sortBy: 'NEWEST_FIRST',
+        page: 0,
+        size: 500
+      })
+      .pipe(
+        map((page) => {
+          const sellerRatings = new Map<string, number>();
+          for (const listing of page.content) {
+            sellerRatings.set(listing.seller.id, listing.seller.rating);
+          }
+
+          const ratings = [...sellerRatings.values()];
+          const averageRating = ratings.length === 0 ? 0 : ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length;
+
+          return {
+            activeListings: page.totalElements,
+            studentSellers: sellerRatings.size,
+            averageRating
+          };
+        }),
+        catchError(() =>
+          of({
+            activeListings: 0,
+            studentSellers: 0,
+            averageRating: 0
+          })
+        )
+      )
+      .subscribe(({ activeListings, studentSellers, averageRating }) => {
+        this.activeListingsKpi = this.formatCompactCount(activeListings);
+        this.studentSellersKpi = this.formatCompactCount(studentSellers);
+        this.avgSellerRatingKpi = `${averageRating.toFixed(1)}/5`;
+      });
+  }
+
+  private formatCompactCount(value: number): string {
+    if (value >= 1000) {
+      const compact = (value / 1000).toFixed(1).replace(/\.0$/, '');
+      return `${compact}k+`;
+    }
+
+    return `${value}`;
   }
 }

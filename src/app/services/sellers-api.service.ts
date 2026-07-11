@@ -26,6 +26,11 @@ export interface ReviewApi {
   createdAt: string;
 }
 
+export interface CreateSellerReviewRequest {
+  rating: number;
+  comment: string;
+}
+
 export interface SellerReviewPage {
   content: ReviewApi[];
   totalPages: number;
@@ -52,6 +57,7 @@ function mapPageResponse<T>(page: PageResponse<T>): PageResult<T> {
 export class SellersApiService {
   private readonly http = inject(HttpClient);
   private readonly baseUrl = `${environment.apiBaseUrl}/api/sellers`;
+  private readonly reviewsBaseUrl = `${environment.apiBaseUrl}/api/reviews/sellers`;
 
   getSellerById(id: string): Observable<SellerApi> {
     return this.http.get<SellerApi>(`${this.baseUrl}/${encodeURIComponent(id)}`);
@@ -75,7 +81,7 @@ export class SellersApiService {
 
   getSellerReviews(id: string, page = 0, size = 10): Observable<SellerReviewPage> {
     return this.http
-      .get<PageResponse<ReviewApi>>(`${this.baseUrl}/${encodeURIComponent(id)}/reviews`, {
+      .get<PageResponse<ReviewApi>>(`${this.reviewsBaseUrl}/${encodeURIComponent(id)}`, {
         params: { page: `${page}`, size: `${size}` }
       })
       .pipe(
@@ -87,5 +93,9 @@ export class SellersApiService {
           };
         })
       );
+  }
+
+  createSellerReview(id: string, payload: CreateSellerReviewRequest): Observable<ReviewApi> {
+    return this.http.post<ReviewApi>(`${this.reviewsBaseUrl}/${encodeURIComponent(id)}`, payload);
   }
 }
